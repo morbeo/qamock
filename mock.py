@@ -59,8 +59,11 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         self._request_summary[route["endpoint"]][route["method"]] += 1
 
     def _read_payload(self) -> str:
-        content_length = int(self.headers.get("Content-Length", 0))
-        return self.rfile.read(content_length).decode("utf-8") if content_length > 0 else ""
+        try:
+            content_length = int(self.headers.get("Content-Length", 0))
+            return self.rfile.read(content_length).decode("utf-8") if content_length > 0 else ""
+        except AttributeError:
+            return ""
 
     def handle_request(self) -> None:
         route = next(
