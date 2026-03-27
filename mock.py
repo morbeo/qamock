@@ -66,23 +66,23 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
             return ""
 
     def handle_request(self) -> None:
-        route = next(
-            (r for r in self.server.routes if r["endpoint"] == self.path and r["method"] == self.command),
-            None,
-        )
+        try:
+            method = HTTPMethod(self.command)
+        except ValueError:
+            self._send_response(405, f"Method Not Allowed: {self.command}")
+            return
+
+        route = self.server.route_index.get((self.path, method.value))
         if route:
             self._handle_route(route)
         else:
             self._send_response(404, "Not Found")
-            self._increment_request_count({"endpoint": self.path, "method": self.command})
+            self._increment_request_count({"endpoint": self.path, "method": method.value})
 
     def log_message(self, format: str, *args) -> None:
         message = format % args
         payload = self._read_payload()
         print(f"{time.strftime('%F %T')} | {self.address_string()} | {message} | {payload}")
-
-    def do_GET(self) -> None:
-        self.handle_request()
 
     def do_LIST(self) -> None:
         self._send_response(200, json.dumps(self.server.routes, indent=2))
@@ -134,21 +134,25 @@ class MockHTTPServer(http.server.HTTPServer):
     def __init__(self, server_address, RequestHandlerClass, routes: List[Dict[str, Any]]) -> None:
         super().__init__(server_address, RequestHandlerClass)
         self.routes = routes
+        self.route_index: Dict[tuple, Dict[str, Any]] = {
+            (r["endpoint"], r["method"]): r for r in routes
+        }
         self.request_summary: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
+
+
+def _strip_exec(routes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    for route in routes:
+        if route.get("exec"):
+            print(f"WARNING: exec ignored for {route['method']} {route['endpoint']} (use --allow-exec to enable)")
+            route["exec"] = ""
+    return routes
 
 
 def load_routes(file_path: str, allow_exec: bool = False) -> List[Dict[str, Any]]:
     with open(file_path, "r") as file:
         data = csv.DictReader(file) if file_path.endswith(".csv") else json.load(file)
         routes = [set_route_defaults(route) for route in data]
-
-    if not allow_exec:
-        for route in routes:
-            if route.get("exec"):
-                print(f"WARNING: exec ignored for {route['method']} {route['endpoint']} (use --allow-exec to enable)")
-                route["exec"] = ""
-
-    return routes
+    return routes if allow_exec else _strip_exec(routes)
 
 
 def set_route_defaults(route: Dict[str, Any]) -> Dict[str, Any]:
@@ -185,14 +189,7 @@ def start_mock(
 
 def parse_cli_routes(cli_routes: List[str], allow_exec: bool = False) -> List[Dict[str, Any]]:
     routes = [set_route_defaults(json.loads(route)) for route in cli_routes]
-
-    if not allow_exec:
-        for route in routes:
-            if route.get("exec"):
-                print(f"WARNING: exec ignored for {route['method']} {route['endpoint']} (use --allow-exec to enable)")
-                route["exec"] = ""
-
-    return routes
+    return routes if allow_exec else _strip_exec(routes)
 
 
 def main():
