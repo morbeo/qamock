@@ -152,11 +152,38 @@ def _strip_exec(routes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return routes
 
 
-def load_routes(file_path: str, allow_exec: bool = False) -> List[Dict[str, Any]]:
+def load_api_file(file_path: str, allow_exec: bool = False) -> tuple:
+    """
+    Load routes from a CSV, a plain JSON routes array, or a full JSON config.
+
+    Full config keys (all optional except routes):
+        hostname, port, cert, key, routes (list)
+
+    Returns (routes, overrides) where overrides is a dict with any of
+    host/port/certfile/keyfile found in the config.
+    """
     with open(file_path, "r") as file:
-        data = csv.DictReader(file) if file_path.endswith(".csv") else json.load(file)
-        routes = [set_route_defaults(route) for route in data]
-    return routes if allow_exec else _strip_exec(routes)
+        if file_path.endswith(".csv"):
+            routes = [set_route_defaults(r) for r in csv.DictReader(file)]
+            return (routes if allow_exec else _strip_exec(routes)), {}
+
+        data = json.load(file)
+
+    if isinstance(data, list):
+        routes = [set_route_defaults(r) for r in data]
+        return (routes if allow_exec else _strip_exec(routes)), {}
+
+    # Full config object
+    overrides = {
+        k: v for k, v in {
+            "host":     data.get("hostname"),
+            "port":     data.get("port"),
+            "certfile": data.get("cert"),
+            "keyfile":  data.get("key"),
+        }.items() if v is not None
+    }
+    routes = [set_route_defaults(r) for r in data.get("routes", [])]
+    return (routes if allow_exec else _strip_exec(routes)), overrides
 
 
 def set_route_defaults(route: Dict[str, Any]) -> Dict[str, Any]:
@@ -204,12 +231,12 @@ def main():
             Default route: --default
             {ROUTE_DEFAULTS=} (this will be overridden by --route)
 
-            JSON route file: --routesfile routes.json
+            JSON route file: --api-file routes.json
             [
                 {{"endpoint": "/test", "method": "GET", "statuscode": 200, "reply": "OK", "exec": "echo 'Hello World'"}}
             ]
 
-            CSV route file: --routesfile routes.csv
+            CSV route file: --api-file routes.csv
             endpoint,method,statuscode,reply,exec
             /test,GET,200,OK,"echo 'Hello World'"
         """),
@@ -218,7 +245,7 @@ def main():
     parser.add_argument("--host", default="localhost", help="The host to listen on.")
     parser.add_argument("--port", type=int, default=4443, help="The port to listen on.")
     parser.add_argument("--default", action="store_true", help="Add a default 'GET /' route.")
-    parser.add_argument("--routesfile", help="The CSV or JSON file specifying the API endpoints.")
+    parser.add_argument("--api-file", help="CSV, JSON routes file, or JSON config with host/port/cert/key/routes.")
     parser.add_argument(
         "--route",
         action="append",
@@ -235,13 +262,13 @@ def main():
 
     args = parser.parse_args()
 
-    if not any([args.default, args.routesfile, args.route]):
+    if not any([args.default, args.api_file, args.route]):
         parser.print_help()
         sys.exit(0)
 
     routes = (
         ([set_route_defaults({})] if args.default else [])
-        + (load_routes(args.routesfile, args.allow_exec) if args.routesfile else [])
+        + (load_routes(args.api_file, args.allow_exec) if args.api_file else [])
         + (parse_cli_routes(args.route, args.allow_exec) if args.route else [])
     )
 
