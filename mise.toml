@@ -3,3 +3,31 @@ run = "python -m pytest test/ -q"
 
 [tasks.coverage]
 run = "python -m pytest test/ -q --cov=qamock --cov-report=term-missing"
+
+[tasks.release]
+description = "Bump version, tag, and push to trigger release workflow"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+
+VERSION=${1:-}
+if [ -z "$VERSION" ]; then
+    echo "Usage: mise run release <version>  (e.g. 1.2.3)"
+    exit 1
+fi
+
+# Strip leading v if provided
+VERSION=${VERSION#v}
+
+# Bump version in pyproject.toml
+sed -i.bak "s/^version = \".*\"/version = \"$VERSION\"/" pyproject.toml
+rm -f pyproject.toml.bak
+
+# Commit, tag, push
+git add pyproject.toml
+git commit -m "chore: release v$VERSION"
+git tag "v$VERSION"
+git push origin main "v$VERSION"
+
+echo "Released v$VERSION"
+"""
