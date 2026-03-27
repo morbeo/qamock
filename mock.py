@@ -266,15 +266,25 @@ def main():
         parser.print_help()
         sys.exit(0)
 
+    overrides = {}
+    file_routes = []
+    if args.api_file:
+        file_routes, overrides = load_api_file(args.api_file, args.allow_exec)
+
     routes = (
         ([set_route_defaults({})] if args.default else [])
-        + (load_routes(args.api_file, args.allow_exec) if args.api_file else [])
+        + file_routes
         + (parse_cli_routes(args.route, args.allow_exec) if args.route else [])
     )
 
+    host     = overrides.get("host",     args.host)
+    port     = overrides.get("port",     args.port)
+    certfile = overrides.get("certfile", args.certfile)
+    keyfile  = overrides.get("keyfile",  args.keyfile)
+
     printable = [{k: v for k, v in r.items() if v != ""} for r in routes]
     print(json.dumps(printable, indent=2))
-    start_mock(args.host, args.port, routes, args.certfile, args.keyfile)
+    start_mock(host, port, routes, certfile, keyfile)
 
 
 if __name__ == "__main__":
