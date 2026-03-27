@@ -102,6 +102,9 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         self.handle_request()
 
     def do_OPTIONS(self) -> None:
+        if not self.server.allow_options:
+            self._send_response(403, "OPTIONS endpoint disabled. Use --allow-options to enable.")
+            return
         _REDACTED = ("certfile", "keyfile")
         safe_args = {k: "<redacted>" if k in _REDACTED else v for k, v in self.server.cli_args.items()}
         info = {
@@ -177,6 +180,7 @@ class MockHTTPServer(http.server.HTTPServer):
         }
         self.request_summary: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
         self.allow_exec = allow_exec
+        self.allow_options = False  # set after init by start_mock
         self.api_file = api_file
         self.cli_args = cli_args or {}
 
@@ -234,10 +238,12 @@ def start_mock(
     certfile: Optional[str] = None,
     keyfile: Optional[str] = None,
     allow_exec: bool = False,
+    allow_options: bool = False,
     api_file: Optional[str] = None,
     cli_args: Optional[Dict[str, Any]] = None,
 ) -> None:
     mock = MockHTTPServer((host, port), RequestHandler, routes, allow_exec=allow_exec, api_file=api_file, cli_args=cli_args)
+    mock.allow_options = allow_options
 
     if certfile and keyfile:
         context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
@@ -299,6 +305,11 @@ def main():
         help="Allow routes to execute shell commands via 'exec'. "
              "Only use with trusted route files. Enables arbitrary code execution.",
     )
+    parser.add_argument(
+        "--allow-options",
+        action="store_true",
+        help="Enable OPTIONS endpoint, which exposes routes and runtime args.",
+    )
 
     args = parser.parse_args()
 
@@ -325,7 +336,7 @@ def main():
     printable = [{k: v for k, v in r.items() if v != ""} for r in routes]
     print(json.dumps(printable, indent=2))
     cli_args = {k: v for k, v in vars(args).items() if v is not None and v is not False}
-    start_mock(host, port, routes, certfile, keyfile, allow_exec=args.allow_exec, api_file=args.api_file, cli_args=cli_args)
+    start_mock(host, port, routes, certfile, keyfile, allow_exec=args.allow_exec, allow_options=args.allow_options, api_file=args.api_file, cli_args=cli_args)
 
 
 if __name__ == "__main__":
