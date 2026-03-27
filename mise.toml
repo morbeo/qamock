@@ -1,0 +1,5 @@
+[tasks.test]
+run = "python -m pytest test/ -q"
+
+[tasks.coverage]
+run = "python -m pytest test/ -q --cov=qamock --cov-report=term-missing"

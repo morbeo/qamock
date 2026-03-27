@@ -1,0 +1,84 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "qamock"
+version = "0.1.0"
+description = "QA HTTP mock server"
+requires-python = ">=3.12"
+
+[project.scripts]
+qamock = "qamock:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "ruff",
+]
+
+[tool.pytest.ini_options]
+filterwarnings = ["ignore::pytest.PytestUnhandledThreadExceptionWarning"]
+
+[tool.black]
+line-length = 160
+
+[tool.isort]
+line_length = 160
+profile = "black"
+multi_line_output = 3
+
+[tool.flake8]
+max-line-length = 160
+
+[tool.ruff]
+line-length = 160
+indent-width = 4
+cache-dir = "~/.local/cache/ruff"
+
+[tool.ruff.lint]
+fixable = ["ALL"]
+unfixable = []
+preview = true
+
+ignore = ["ALL"]
+
+select = [
+    "COM812",
+    "E201",
+    "E202",
+    "E222",
+    "E225",
+    "E231",
+    "E251",
+    "E265",
+    "E302",
+    "E305",
+    "E501",
+    "F401",
+    "F541",
+    "I001",
+    "ISC001",
+    "W191",
+]
+
+exclude = [
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".mypy_cache",
+    ".pyenv",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".venv",
+    ".vscode",
+    "venv",
+]
+
+[tool.ruff.format]
+quote-style = "preserve"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+preview = true
