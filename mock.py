@@ -38,6 +38,8 @@ class HTTPMethod(Enum):
 class RequestHandler(http.server.SimpleHTTPRequestHandler):
     server_version = "QA Mock"
 
+    _exec_log: str = ""  # reset per-request in handle_request; default for special methods
+
     @property
     def _request_summary(self) -> Dict[str, Dict[str, int]]:
         return self.server.request_summary

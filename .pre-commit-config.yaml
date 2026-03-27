@@ -12,6 +12,13 @@ repos:
       entry: ruff check --force-exclude --fix --show-fixes --preview
       types:
         - python
+    - id: pytest
+      name: pytest
+      language: system
+      entry: python -m pytest test/ -q
+      types:
+        - python
+      pass_filenames: false
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v3.2.0
