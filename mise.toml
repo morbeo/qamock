@@ -27,7 +27,7 @@ rm -f pyproject.toml.bak
 git add pyproject.toml
 git commit -m "chore: release v$VERSION"
 git tag "v$VERSION"
-git push origin main "v$VERSION"
+git push origin "v$VERSION"
 
 echo "Released v$VERSION"
 """
