@@ -32,6 +32,7 @@ class HTTPMethod(Enum):
     LIST = "LIST"
     KILL = "KILL"
     TRACE = "TRACE"
+    ANY = "*"
 
 
 class RequestHandler(http.server.SimpleHTTPRequestHandler):
@@ -81,7 +82,13 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
             self._send_response(405, f"Method Not Allowed: {self.command}")
             return
 
-        route = self.server.route_index.get((self.path, method.value))
+        idx = self.server.route_index
+        route = (
+            idx.get((self.path, method.value))        # exact
+            or idx.get((self.path, "*"))               # wildcard method
+            or idx.get(("*", method.value))            # wildcard endpoint
+            or idx.get(("*", "*"))                     # both wildcards
+        )
         if route:
             self._handle_route(route)
         else:
@@ -175,6 +182,7 @@ class MockHTTPServer(http.server.HTTPServer):
     ) -> None:
         super().__init__(server_address, RequestHandlerClass)
         self.routes = routes
+        # Exact matches keyed by (endpoint, method); wildcards resolved at request time.
         self.route_index: Dict[tuple, Dict[str, Any]] = {
             (r["endpoint"], r["method"]): r for r in routes
         }
