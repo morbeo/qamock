@@ -48,7 +48,8 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(f"{content}\n".encode())
 
     def _handle_route(self, route: Dict[str, Any]) -> None:
-        response = route["reply"]
+        reply = route["reply"]
+        response = json.dumps(reply) if isinstance(reply, (dict, list)) else reply
         if route["exec"]:
             exec_output = self.execute_command(route["exec"])
             response += f"\nExec: [{route['exec']}]\n{exec_output}"
@@ -83,6 +84,9 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         message = format % args
         payload = self._read_payload()
         print(f"{time.strftime('%F %T')} | {self.address_string()} | {message} | {payload}")
+
+    def do_GET(self) -> None:
+        self.handle_request()
 
     def do_LIST(self) -> None:
         self._send_response(200, json.dumps(self.server.routes, indent=2))
@@ -231,16 +235,18 @@ def main():
 
     args = parser.parse_args()
 
+    if not any([args.default, args.routesfile, args.route]):
+        parser.print_help()
+        sys.exit(0)
+
     routes = (
         ([set_route_defaults({})] if args.default else [])
         + (load_routes(args.routesfile, args.allow_exec) if args.routesfile else [])
         + (parse_cli_routes(args.route, args.allow_exec) if args.route else [])
     )
 
-    if not routes:
-        routes = [set_route_defaults({})]
-
-    print(json.dumps(routes, indent=2))
+    printable = [{k: v for k, v in r.items() if v != ""} for r in routes]
+    print(json.dumps(printable, indent=2))
     start_mock(args.host, args.port, routes, args.certfile, args.keyfile)
 
 
