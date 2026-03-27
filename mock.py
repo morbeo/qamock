@@ -37,33 +37,31 @@ class HTTPMethod(Enum):
 class RequestHandler(http.server.SimpleHTTPRequestHandler):
     server_version = "QA Mock"
 
-    def __init__(self, *args, **kwargs):
-        self._exec_log: str = ""
-        super().__init__(*args, **kwargs)
+    _exec_log: str = ""
 
     @property
     def _request_summary(self) -> Dict[str, Dict[str, int]]:
         return self.server.request_summary
 
-    def _send_response(self, code: int, content: str) -> None:
+    def _send_response(self, code: int, content: str, content_type: str = "text/plain") -> None:
         self.send_response(code)
-        self.send_header("Content-type", "text/html")
+        self.send_header("Content-Type", content_type)
         self.end_headers()
         self.wfile.write(f"{content}\n".encode())
 
     def _handle_route(self, route: Dict[str, Any]) -> None:
         reply = route["reply"]
-        response = json.dumps(reply) if isinstance(reply, (dict, list)) else reply
+        is_json = isinstance(reply, (dict, list))
+        response = json.dumps(reply) if is_json else reply
         if route["exec"]:
             if self.server.allow_exec:
-                exec_output = self.execute_command(route["exec"])
-                rc = "ok" if not exec_output.startswith("Error") else "err"
-                self._exec_log = f"Exec: [{route['exec']}] ({rc})"
+                exec_output, rc = self.execute_command(route["exec"])
+                self._exec_log = f"Exec: [{route['exec']}] (rc={rc})"
                 response += f"\n{self._exec_log}\n{exec_output}"
             else:
                 self._exec_log = f"*!* exec commands require explicit --allow-exec | NOT Exec: [{route['exec']}]"
                 response += f"\n{self._exec_log}"
-        self._send_response(route["statuscode"], response)
+        self._send_response(route["statuscode"], response, content_type="application/json" if is_json else "text/plain")
         self._increment_request_count(route)
 
     def _increment_request_count(self, route: Dict[str, Any]) -> None:
@@ -104,18 +102,21 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         self.handle_request()
 
     def do_OPTIONS(self) -> None:
+        _REDACTED = ("certfile", "keyfile")
+        safe_args = {k: "<redacted>" if k in _REDACTED else v for k, v in self.server.cli_args.items()}
         info = {
             "api_file": self.server.api_file,
-            "args": self.server.cli_args,
+            "args": safe_args,
             "routes": [{k: v for k, v in r.items() if v != ""} for r in self.server.routes],
         }
-        self._send_response(200, json.dumps(info, indent=2))
+        self._send_response(200, json.dumps(info, indent=2), content_type="application/json")
 
     def do_LIST(self) -> None:
-        self._send_response(200, json.dumps(self.server.routes, indent=2))
+        self._send_response(200, json.dumps(self.server.routes, indent=2), content_type="application/json")
 
     def do_KILL(self) -> None:
-        self._send_response(666, json.dumps(dict(self._request_summary), indent=2))
+        self._send_response(666, json.dumps(dict(self._request_summary), indent=2), content_type="application/json")
+        self.wfile.flush()
         sys.exit(666)
 
     def do_TRACE(self) -> None:
@@ -133,28 +134,30 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         raise AttributeError(f"{self.__class__.__name__} object has no attribute {name}")
 
     @staticmethod
-    def execute_command(command: str) -> str:
+    def execute_command(command: str) -> tuple:
         """
-        Execute a shell command and return its stdout.
+        Execute a shell command and return (stdout, returncode).
 
         WARNING: Commands are executed via shell=True. Only enable route exec
         via --allow-exec when the routes file is fully trusted. Untrusted input
         can lead to arbitrary code execution.
+
+        NOTE: _read_payload consumes rfile in log_message, which runs after the
+        response is sent. If body-based route matching is ever added, payload
+        must be read in handle_request before routing, not in log_message.
         """
         try:
             result = subprocess.run(
                 command,
                 shell=True,
-                check=True,
+                check=False,
                 capture_output=True,
                 text=True,
                 timeout=10,
             )
-            return result.stdout
-        except subprocess.CalledProcessError as e:
-            return f"Error executing command: {e.stderr}"
+            return result.stdout, result.returncode
         except subprocess.TimeoutExpired:
-            return "Command execution timed out after 10 seconds"
+            return "Command execution timed out after 10 seconds", -1
 
 
 class MockHTTPServer(http.server.HTTPServer):
