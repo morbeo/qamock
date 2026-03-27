@@ -37,6 +37,10 @@ class HTTPMethod(Enum):
 class RequestHandler(http.server.SimpleHTTPRequestHandler):
     server_version = "QA Mock"
 
+    def __init__(self, *args, **kwargs):
+        self._exec_log: str = ""
+        super().__init__(*args, **kwargs)
+
     @property
     def _request_summary(self) -> Dict[str, Dict[str, int]]:
         return self.server.request_summary
@@ -51,8 +55,14 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         reply = route["reply"]
         response = json.dumps(reply) if isinstance(reply, (dict, list)) else reply
         if route["exec"]:
-            exec_output = self.execute_command(route["exec"])
-            response += f"\nExec: [{route['exec']}]\n{exec_output}"
+            if self.server.allow_exec:
+                exec_output = self.execute_command(route["exec"])
+                rc = "ok" if not exec_output.startswith("Error") else "err"
+                self._exec_log = f"Exec: [{route['exec']}] ({rc})"
+                response += f"\n{self._exec_log}\n{exec_output}"
+            else:
+                self._exec_log = f"*!* exec commands require explicit --allow-exec | NOT Exec: [{route['exec']}]"
+                response += f"\n{self._exec_log}"
         self._send_response(route["statuscode"], response)
         self._increment_request_count(route)
 
@@ -83,10 +93,23 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
     def log_message(self, format: str, *args) -> None:
         message = format % args
         payload = self._read_payload()
-        print(f"{time.strftime('%F %T')} | {self.address_string()} | {message} | {payload}")
+        parts = [time.strftime('%F %T'), self.address_string(), message]
+        if payload:
+            parts.append(payload)
+        if self._exec_log:
+            parts.append(self._exec_log)
+        print(" | ".join(parts))
 
     def do_GET(self) -> None:
         self.handle_request()
+
+    def do_OPTIONS(self) -> None:
+        info = {
+            "api_file": self.server.api_file,
+            "args": self.server.cli_args,
+            "routes": [{k: v for k, v in r.items() if v != ""} for r in self.server.routes],
+        }
+        self._send_response(200, json.dumps(info, indent=2))
 
     def do_LIST(self) -> None:
         self._send_response(200, json.dumps(self.server.routes, indent=2))
@@ -135,13 +158,24 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
 
 
 class MockHTTPServer(http.server.HTTPServer):
-    def __init__(self, server_address, RequestHandlerClass, routes: List[Dict[str, Any]]) -> None:
+    def __init__(
+        self,
+        server_address,
+        RequestHandlerClass,
+        routes: List[Dict[str, Any]],
+        allow_exec: bool = False,
+        api_file: Optional[str] = None,
+        cli_args: Optional[Dict[str, Any]] = None,
+    ) -> None:
         super().__init__(server_address, RequestHandlerClass)
         self.routes = routes
         self.route_index: Dict[tuple, Dict[str, Any]] = {
             (r["endpoint"], r["method"]): r for r in routes
         }
         self.request_summary: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
+        self.allow_exec = allow_exec
+        self.api_file = api_file
+        self.cli_args = cli_args or {}
 
 
 def _strip_exec(routes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -196,8 +230,11 @@ def start_mock(
     routes: List[Dict[str, Any]],
     certfile: Optional[str] = None,
     keyfile: Optional[str] = None,
+    allow_exec: bool = False,
+    api_file: Optional[str] = None,
+    cli_args: Optional[Dict[str, Any]] = None,
 ) -> None:
-    mock = MockHTTPServer((host, port), RequestHandler, routes)
+    mock = MockHTTPServer((host, port), RequestHandler, routes, allow_exec=allow_exec, api_file=api_file, cli_args=cli_args)
 
     if certfile and keyfile:
         context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
@@ -284,7 +321,8 @@ def main():
 
     printable = [{k: v for k, v in r.items() if v != ""} for r in routes]
     print(json.dumps(printable, indent=2))
-    start_mock(host, port, routes, certfile, keyfile)
+    cli_args = {k: v for k, v in vars(args).items() if v is not None and v is not False}
+    start_mock(host, port, routes, certfile, keyfile, allow_exec=args.allow_exec, api_file=args.api_file, cli_args=cli_args)
 
 
 if __name__ == "__main__":
