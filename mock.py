@@ -84,10 +84,10 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
 
         idx = self.server.route_index
         route = (
-            idx.get((self.path, method.value))        # exact
-            or idx.get((self.path, "*"))               # wildcard method
-            or idx.get(("*", method.value))            # wildcard endpoint
-            or idx.get(("*", "*"))                     # both wildcards
+            idx.get((self.path, method.value))  # exact
+            or idx.get((self.path, "*"))  # wildcard method
+            or idx.get(("*", method.value))  # wildcard endpoint
+            or idx.get(("*", "*"))  # both wildcards
         )
         if route:
             self._handle_route(route)
@@ -98,7 +98,7 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
     def log_message(self, format: str, *args) -> None:
         message = format % args
         payload = self._read_payload()
-        parts = [time.strftime('%F %T'), self.address_string(), message]
+        parts = [time.strftime("%F %T"), self.address_string(), message]
         if payload:
             parts.append(payload)
         if self._exec_log:
@@ -183,9 +183,7 @@ class MockHTTPServer(http.server.HTTPServer):
         super().__init__(server_address, RequestHandlerClass)
         self.routes = routes
         # Exact matches keyed by (endpoint, method); wildcards resolved at request time.
-        self.route_index: Dict[tuple, Dict[str, Any]] = {
-            (r["endpoint"], r["method"]): r for r in routes
-        }
+        self.route_index: Dict[tuple, Dict[str, Any]] = {(r["endpoint"], r["method"]): r for r in routes}
         self.request_summary: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
         self.allow_exec = allow_exec
         self.allow_options = False  # set after init by start_mock
@@ -224,12 +222,14 @@ def load_api_file(file_path: str, allow_exec: bool = False) -> tuple:
 
     # Full config object
     overrides = {
-        k: v for k, v in {
-            "host":     data.get("hostname"),
-            "port":     data.get("port"),
+        k: v
+        for k, v in {
+            "host": data.get("hostname"),
+            "port": data.get("port"),
             "certfile": data.get("cert"),
-            "keyfile":  data.get("key"),
-        }.items() if v is not None
+            "keyfile": data.get("key"),
+        }.items()
+        if v is not None
     }
     routes = [set_route_defaults(r) for r in data.get("routes", [])]
     return (routes if allow_exec else _strip_exec(routes)), overrides
@@ -280,21 +280,63 @@ def parse_cli_routes(cli_routes: List[str], allow_exec: bool = False) -> List[Di
 def main():
     parser = argparse.ArgumentParser(
         description="Start an HTTP server based on a CSV or JSON specification or command-line arguments.",
-        epilog=dedent(f"""\
-        examples:
-            Default route: --default
-            {ROUTE_DEFAULTS=} (this will be overridden by --route)
+        epilog=dedent("""        route defaults:
+            endpoint=/  method=GET  statuscode=200  reply=OK  exec=
 
-            JSON route file: --api-file routes.json
+        route fields:
+            endpoint    URL path to match. Use * for catch-all.
+            method      HTTP method to match. Use * for any method.
+            statuscode  HTTP status code to return (default: 200).
+            reply       Response body: string, JSON object, or JSON array.
+            exec        Shell command to run (requires --allow-exec).
+
+        special methods (built-in, not configurable via routes):
+            LIST        Returns all configured routes as JSON.
+            KILL        Returns request summary as JSON and exits with code 666.
+            TRACE       Echoes back the raw request headers (RFC 7231 diagnostic).
+            OPTIONS     Returns runtime config and routes (requires --allow-options).
+
+        wildcard examples:
+            {"endpoint": "/health", "method": "*",   "statuscode": 200, "reply": "OK"}
+            {"endpoint": "*",       "method": "GET", "statuscode": 200, "reply": "OK"}
+            {"endpoint": "*",       "method": "*",   "statuscode": 200, "reply": "OK"}
+
+        match priority (highest to lowest):
+            1. exact endpoint + exact method
+            2. exact endpoint + wildcard method (*)
+            3. wildcard endpoint (*) + exact method
+            4. wildcard endpoint (*) + wildcard method (*)
+
+        --api-file formats:
+
+            1. JSON routes array:
             [
-                {{"endpoint": "/test", "method": "GET", "statuscode": 200, "reply": "OK", "exec": "echo 'Hello World'"}}
+                {"endpoint": "/test",  "method": "GET",  "statuscode": 200, "reply": "OK"},
+                {"endpoint": "/token", "method": "POST", "reply": {"token": "abc123"}},
+                {"endpoint": "/data",  "method": "GET",  "reply": [1, 2, 3]},
+                {"endpoint": "/run",   "method": "GET",  "exec": "uptime"}
             ]
 
-            CSV route file: --api-file routes.csv
+            2. JSON full config (overrides --host/--port/--certfile/--keyfile):
+            {
+                "hostname": "example.com",
+                "port": 443,
+                "cert": "/etc/ssl/cert.pem",
+                "key":  "/etc/ssl/key.pem",
+                "routes": [
+                    {"endpoint": "/test", "method": "GET", "statuscode": 200, "reply": "OK"}
+                ]
+            }
+
+            3. CSV routes file:
             endpoint,method,statuscode,reply,exec
-            /test,GET,200,OK,"echo 'Hello World'"
+            /test,GET,200,OK,
+            /run,GET,200,,uptime
+
+        --route inline (repeatable):
+            --route '{"endpoint": "/ping", "method": "GET", "reply": "pong"}'
         """),
-        formatter_class=argparse.RawDescriptionHelpFormatter,
+                formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--host", default="localhost", help="The host to listen on.")
     parser.add_argument("--port", type=int, default=4443, help="The port to listen on.")
@@ -310,8 +352,7 @@ def main():
     parser.add_argument(
         "--allow-exec",
         action="store_true",
-        help="Allow routes to execute shell commands via 'exec'. "
-             "Only use with trusted route files. Enables arbitrary code execution.",
+        help="Allow routes to execute shell commands via 'exec'. Only use with trusted route files. Enables arbitrary code execution.",
     )
     parser.add_argument(
         "--allow-options",
@@ -330,16 +371,12 @@ def main():
     if args.api_file:
         file_routes, overrides = load_api_file(args.api_file, args.allow_exec)
 
-    routes = (
-        ([set_route_defaults({})] if args.default else [])
-        + file_routes
-        + (parse_cli_routes(args.route, args.allow_exec) if args.route else [])
-    )
+    routes = ([set_route_defaults({})] if args.default else []) + file_routes + (parse_cli_routes(args.route, args.allow_exec) if args.route else [])
 
-    host     = overrides.get("host",     args.host)
-    port     = overrides.get("port",     args.port)
+    host = overrides.get("host", args.host)
+    port = overrides.get("port", args.port)
     certfile = overrides.get("certfile", args.certfile)
-    keyfile  = overrides.get("keyfile",  args.keyfile)
+    keyfile = overrides.get("keyfile", args.keyfile)
 
     printable = [{k: v for k, v in r.items() if v != ""} for r in routes]
     print(json.dumps(printable, indent=2))
