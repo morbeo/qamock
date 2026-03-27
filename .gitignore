@@ -1,2 +1,38 @@
-__pycache__
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Testing & coverage
 .coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.pytest_cache/
+
+# Ruff
+.ruff_cache/
+
+# Mise
+.mise.local.toml
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets / certs
+*.pem
+*.key
+*.crt
+*.p12

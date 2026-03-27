@@ -9,6 +9,7 @@ import sys
 import time
 from collections import defaultdict
 from enum import Enum
+from importlib.metadata import PackageNotFoundError, version
 from textwrap import dedent
 from typing import Any, Dict, List, Optional
 
@@ -217,7 +218,7 @@ def load_api_file(file_path: str, allow_exec: bool = False) -> tuple:
     """
     overrides: Dict[str, Any] = {}
 
-    with open(file_path) as file:
+    with open(file_path, "r") as file:
         if file_path.endswith(".csv"):
             raw = list(csv.DictReader(file))
         else:
@@ -353,6 +354,11 @@ def main():
         """),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    try:
+        __version__ = version("qamock")
+    except PackageNotFoundError:
+        __version__ = "dev"
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument("--host", default="localhost", help="The host to listen on.")
     parser.add_argument("--port", type=int, default=4443, help="The port to listen on.")
     parser.add_argument("--default", action="store_true", help="Add a default 'GET /' route.")

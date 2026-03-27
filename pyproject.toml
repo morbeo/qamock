@@ -13,13 +13,17 @@ qamock = "qamock:main"
 
 [project.optional-dependencies]
 dev = [
-    "pytest",
-    "pytest-cov",
-    "ruff",
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "ruff>=0.4",
 ]
 
 [tool.pytest.ini_options]
 filterwarnings = ["ignore::pytest.PytestUnhandledThreadExceptionWarning"]
+addopts = "--cov=qamock --cov-report=term-missing --cov-fail-under=95"
+
+[tool.coverage.run]
+omit = ["test/*"]
 
 [tool.black]
 line-length = 160
@@ -73,6 +77,7 @@ exclude = [
     ".ruff_cache",
     ".venv",
     ".vscode",
+    "node_modules",
     "venv",
 ]
 
