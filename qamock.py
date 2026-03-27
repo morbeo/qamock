@@ -9,8 +9,8 @@ import sys
 import time
 from collections import defaultdict
 from enum import Enum
-from typing import Any, Dict, List, Optional
 from textwrap import dedent
+from typing import Any, Dict, List, Optional
 
 ROUTE_DEFAULTS = {
     "endpoint": "/",
@@ -86,10 +86,10 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
 
         idx = self.server.route_index
         route = (
-            idx.get((self.path, method.value))        # exact
-            or idx.get((self.path, "*"))               # wildcard method
-            or idx.get(("*", method.value))            # wildcard endpoint
-            or idx.get(("*", "*"))                     # both wildcards
+            idx.get((self.path, method.value))  # exact
+            or idx.get((self.path, "*"))  # wildcard method
+            or idx.get(("*", method.value))  # wildcard endpoint
+            or idx.get(("*", "*"))  # both wildcards
         )
         if route:
             self._handle_route(route)
@@ -189,9 +189,7 @@ class MockHTTPServer(http.server.HTTPServer):
         super().__init__(server_address, RequestHandlerClass)
         self.routes = routes
         # Exact matches keyed by (endpoint, method); wildcards resolved at request time.
-        self.route_index: Dict[tuple, Dict[str, Any]] = {
-            (r["endpoint"], r["method"]): r for r in routes
-        }
+        self.route_index: Dict[tuple, Dict[str, Any]] = {(r["endpoint"], r["method"]): r for r in routes}
         self.request_summary: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
         self.allow_exec = allow_exec
         self.allow_options = allow_options
@@ -219,7 +217,7 @@ def load_api_file(file_path: str, allow_exec: bool = False) -> tuple:
     """
     overrides: Dict[str, Any] = {}
 
-    with open(file_path, "r") as file:
+    with open(file_path) as file:
         if file_path.endswith(".csv"):
             raw = list(csv.DictReader(file))
         else:
@@ -228,12 +226,14 @@ def load_api_file(file_path: str, allow_exec: bool = False) -> tuple:
                 raw = data
             else:
                 overrides = {
-                    k: v for k, v in {
-                        "host":     data.get("hostname"),
-                        "port":     int(data["port"]) if "port" in data else None,
+                    k: v
+                    for k, v in {
+                        "host": data.get("hostname"),
+                        "port": int(data["port"]) if "port" in data else None,
                         "certfile": data.get("cert"),
-                        "keyfile":  data.get("key"),
-                    }.items() if v is not None
+                        "keyfile": data.get("key"),
+                    }.items()
+                    if v is not None
                 }
                 raw = data.get("routes", [])
 
@@ -351,7 +351,7 @@ def main():
         --route inline (repeatable):
             --route '{"endpoint": "/ping", "method": "GET", "reply": "pong"}'
         """),
-                formatter_class=argparse.RawDescriptionHelpFormatter,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--host", default="localhost", help="The host to listen on.")
     parser.add_argument("--port", type=int, default=4443, help="The port to listen on.")
@@ -367,8 +367,7 @@ def main():
     parser.add_argument(
         "--allow-exec",
         action="store_true",
-        help="Allow routes to execute shell commands via 'exec'. "
-             "Only use with trusted route files. Enables arbitrary code execution.",
+        help="Allow routes to execute shell commands via 'exec'. Only use with trusted route files. Enables arbitrary code execution.",
     )
     parser.add_argument(
         "--allow-options",
@@ -387,16 +386,12 @@ def main():
     if args.api_file:
         file_routes, overrides = load_api_file(args.api_file, args.allow_exec)
 
-    routes = (
-        ([set_route_defaults({})] if args.default else [])
-        + file_routes
-        + (parse_cli_routes(args.route, args.allow_exec) if args.route else [])
-    )
+    routes = ([set_route_defaults({})] if args.default else []) + file_routes + (parse_cli_routes(args.route, args.allow_exec) if args.route else [])
 
-    host     = overrides.get("host",     args.host)
-    port     = overrides.get("port",     args.port)
+    host = overrides.get("host", args.host)
+    port = overrides.get("port", args.port)
     certfile = overrides.get("certfile", args.certfile)
-    keyfile  = overrides.get("keyfile",  args.keyfile)
+    keyfile = overrides.get("keyfile", args.keyfile)
 
     printable = [{k: v for k, v in r.items() if v != ""} for r in routes]
     print(json.dumps(printable, indent=2))

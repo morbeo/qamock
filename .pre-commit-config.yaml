@@ -12,6 +12,14 @@ repos:
       entry: ruff check --force-exclude --fix --show-fixes --preview
       types:
         - python
+
+    - id: ruff-format
+      name: ruff format
+      language: system
+      entry: ruff format
+      types:
+        - python
+
     - id: pytest
       name: pytest
       language: system
