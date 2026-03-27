@@ -38,8 +38,6 @@ class HTTPMethod(Enum):
 class RequestHandler(http.server.SimpleHTTPRequestHandler):
     server_version = "QA Mock"
 
-    _exec_log: str = ""
-
     @property
     def _request_summary(self) -> Dict[str, Dict[str, int]]:
         return self.server.request_summary
@@ -66,7 +64,8 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
         self._increment_request_count(route)
 
     def _increment_request_count(self, route: Dict[str, Any]) -> None:
-        self._request_summary[route["endpoint"]][route["method"]] += 1
+        # Record actual requested path/method, not the (possibly wildcard) route pattern.
+        self._request_summary[self.path][self.command] += 1
 
     def _read_payload(self) -> str:
         try:
@@ -76,6 +75,7 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
             return ""
 
     def handle_request(self) -> None:
+        self._exec_log = ""
         try:
             method = HTTPMethod(self.command)
         except ValueError:
@@ -84,21 +84,21 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
 
         idx = self.server.route_index
         route = (
-            idx.get((self.path, method.value))  # exact
-            or idx.get((self.path, "*"))  # wildcard method
-            or idx.get(("*", method.value))  # wildcard endpoint
-            or idx.get(("*", "*"))  # both wildcards
+            idx.get((self.path, method.value))        # exact
+            or idx.get((self.path, "*"))               # wildcard method
+            or idx.get(("*", method.value))            # wildcard endpoint
+            or idx.get(("*", "*"))                     # both wildcards
         )
         if route:
             self._handle_route(route)
         else:
             self._send_response(404, "Not Found")
-            self._increment_request_count({"endpoint": self.path, "method": method.value})
+            self._request_summary[self.path][self.command] += 1
 
     def log_message(self, format: str, *args) -> None:
         message = format % args
         payload = self._read_payload()
-        parts = [time.strftime("%F %T"), self.address_string(), message]
+        parts = [time.strftime('%F %T'), self.address_string(), message]
         if payload:
             parts.append(payload)
         if self._exec_log:
@@ -165,7 +165,10 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
                 text=True,
                 timeout=10,
             )
-            return result.stdout, result.returncode
+            output = result.stdout
+            if result.stderr:
+                output += f"\nstderr: {result.stderr}"
+            return output, result.returncode
         except subprocess.TimeoutExpired:
             return "Command execution timed out after 10 seconds", -1
 
@@ -177,16 +180,19 @@ class MockHTTPServer(http.server.HTTPServer):
         RequestHandlerClass,
         routes: List[Dict[str, Any]],
         allow_exec: bool = False,
+        allow_options: bool = False,
         api_file: Optional[str] = None,
         cli_args: Optional[Dict[str, Any]] = None,
     ) -> None:
         super().__init__(server_address, RequestHandlerClass)
         self.routes = routes
         # Exact matches keyed by (endpoint, method); wildcards resolved at request time.
-        self.route_index: Dict[tuple, Dict[str, Any]] = {(r["endpoint"], r["method"]): r for r in routes}
+        self.route_index: Dict[tuple, Dict[str, Any]] = {
+            (r["endpoint"], r["method"]): r for r in routes
+        }
         self.request_summary: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
         self.allow_exec = allow_exec
-        self.allow_options = False  # set after init by start_mock
+        self.allow_options = allow_options
         self.api_file = api_file
         self.cli_args = cli_args or {}
 
@@ -209,34 +215,37 @@ def load_api_file(file_path: str, allow_exec: bool = False) -> tuple:
     Returns (routes, overrides) where overrides is a dict with any of
     host/port/certfile/keyfile found in the config.
     """
+    overrides: Dict[str, Any] = {}
+
     with open(file_path, "r") as file:
         if file_path.endswith(".csv"):
-            routes = [set_route_defaults(r) for r in csv.DictReader(file)]
-            return (routes if allow_exec else _strip_exec(routes)), {}
+            raw = list(csv.DictReader(file))
+        else:
+            data = json.load(file)
+            if isinstance(data, list):
+                raw = data
+            else:
+                overrides = {
+                    k: v for k, v in {
+                        "host":     data.get("hostname"),
+                        "port":     int(data["port"]) if "port" in data else None,
+                        "certfile": data.get("cert"),
+                        "keyfile":  data.get("key"),
+                    }.items() if v is not None
+                }
+                raw = data.get("routes", [])
 
-        data = json.load(file)
-
-    if isinstance(data, list):
-        routes = [set_route_defaults(r) for r in data]
-        return (routes if allow_exec else _strip_exec(routes)), {}
-
-    # Full config object
-    overrides = {
-        k: v
-        for k, v in {
-            "host": data.get("hostname"),
-            "port": data.get("port"),
-            "certfile": data.get("cert"),
-            "keyfile": data.get("key"),
-        }.items()
-        if v is not None
-    }
-    routes = [set_route_defaults(r) for r in data.get("routes", [])]
+    routes = [set_route_defaults(r) for r in raw]
     return (routes if allow_exec else _strip_exec(routes)), overrides
 
 
 def set_route_defaults(route: Dict[str, Any]) -> Dict[str, Any]:
-    return ROUTE_DEFAULTS | {k: v for k, v in route.items() if v is not None}
+    merged = ROUTE_DEFAULTS | {k: v for k, v in route.items() if v is not None}
+    method = merged["method"]
+    valid_methods = {m.value for m in HTTPMethod}
+    if method not in valid_methods:
+        print(f"WARNING: unrecognised method '{method}' for endpoint '{merged['endpoint']}' — route will never match")
+    return merged
 
 
 def start_mock(
@@ -250,8 +259,12 @@ def start_mock(
     api_file: Optional[str] = None,
     cli_args: Optional[Dict[str, Any]] = None,
 ) -> None:
-    mock = MockHTTPServer((host, port), RequestHandler, routes, allow_exec=allow_exec, api_file=api_file, cli_args=cli_args)
-    mock.allow_options = allow_options
+    mock = MockHTTPServer((host, port), RequestHandler, routes, allow_exec=allow_exec, allow_options=allow_options, api_file=api_file, cli_args=cli_args)
+
+    if bool(certfile) ^ bool(keyfile):
+        missing = "keyfile" if certfile else "certfile"
+        print(f"WARNING: --{missing} not provided — ignoring SSL config, serving plain HTTP")
+        certfile = keyfile = None
 
     if certfile and keyfile:
         context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
@@ -352,7 +365,8 @@ def main():
     parser.add_argument(
         "--allow-exec",
         action="store_true",
-        help="Allow routes to execute shell commands via 'exec'. Only use with trusted route files. Enables arbitrary code execution.",
+        help="Allow routes to execute shell commands via 'exec'. "
+             "Only use with trusted route files. Enables arbitrary code execution.",
     )
     parser.add_argument(
         "--allow-options",
@@ -371,12 +385,16 @@ def main():
     if args.api_file:
         file_routes, overrides = load_api_file(args.api_file, args.allow_exec)
 
-    routes = ([set_route_defaults({})] if args.default else []) + file_routes + (parse_cli_routes(args.route, args.allow_exec) if args.route else [])
+    routes = (
+        ([set_route_defaults({})] if args.default else [])
+        + file_routes
+        + (parse_cli_routes(args.route, args.allow_exec) if args.route else [])
+    )
 
-    host = overrides.get("host", args.host)
-    port = overrides.get("port", args.port)
+    host     = overrides.get("host",     args.host)
+    port     = overrides.get("port",     args.port)
     certfile = overrides.get("certfile", args.certfile)
-    keyfile = overrides.get("keyfile", args.keyfile)
+    keyfile  = overrides.get("keyfile",  args.keyfile)
 
     printable = [{k: v for k, v in r.items() if v != ""} for r in routes]
     print(json.dumps(printable, indent=2))
