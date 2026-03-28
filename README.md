@@ -4,13 +4,12 @@ A lightweight QA HTTP mock server. Define routes via JSON, CSV, or inline CLI ar
 
 ## Install
 
+No runtime dependencies — just Python 3.12+.
+
+**For development:**
 ```bash
 pip install -e ".[dev]"
-```
-
-Or with uv:
-
-```bash
+# or with uv
 uv pip install -e ".[dev]"
 ```
 

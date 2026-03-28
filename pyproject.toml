@@ -4,15 +4,16 @@ build-backend = "hatchling.build"
 
 [project]
 name = "qamock"
-version = 0.3.0
+version = "0.3.0"
 description = "QA HTTP mock server"
 requires-python = ">=3.12"
 
 [project.scripts]
 qamock = "qamock:main"
 
-[project.optional-dependencies]
-dev = [
+[dependency-groups]
+dev-dependencies = [
+    "hatchling",
     "pytest>=8.0",
     "pytest-cov>=5.0",
     "ruff>=0.4",
