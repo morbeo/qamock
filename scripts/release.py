@@ -93,7 +93,7 @@ def main() -> None:
     run('git add pyproject.toml uv.lock')
     run(f'git commit -m "chore: release v{new_str}"')
     run(f'git tag v{new_str}')
-    run(f'git push origin main v{new_str}')
+    run(f'git push origin v{new_str}')
 
     print(f"\nReleased v{new_str}")
 
