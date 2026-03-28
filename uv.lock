@@ -191,7 +191,7 @@ version = "0.3.1"
 source = { editable = "." }
 
 [package.dev-dependencies]
-dev-dependencies = [
+dev = [
     { name = "hatchling" },
     { name = "pytest" },
     { name = "pytest-cov" },
@@ -201,7 +201,7 @@ dev-dependencies = [
 [package.metadata]
 
 [package.metadata.requires-dev]
-dev-dependencies = [
+dev = [
     { name = "hatchling" },
     { name = "pytest", specifier = ">=8.0" },
     { name = "pytest-cov", specifier = ">=5.0" },

@@ -12,7 +12,7 @@ requires-python = ">=3.12"
 qamock = "qamock:main"
 
 [dependency-groups]
-dev-dependencies = [
+dev = [
     "hatchling",
     "pytest>=8.0",
     "pytest-cov>=5.0",
