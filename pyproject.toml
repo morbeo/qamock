@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "qamock"
-version = "0.3.2"
+version = "0.3.3"
 description = "QA HTTP mock server"
 requires-python = ">=3.12"
 
