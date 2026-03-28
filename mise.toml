@@ -15,22 +15,6 @@ description = "Run tests with coverage report"
 run = "uv run python -m pytest --cov=qamock --cov-report=term-missing"
 
 [tasks.release]
-description = "Bump version, tag, and push to trigger release workflow"
-run = """
-#!/usr/bin/env bash
-set -euo pipefail
-VERSION=${1:-}
-if [ -z "$VERSION" ]; then
-    echo "Usage: mise run release <version>  (e.g. 1.2.3)"
-    exit 1
-fi
-VERSION=${VERSION#v}
-sed -i.bak "s/^version = \".*\"/version = \"$VERSION\"/" pyproject.toml
-rm -f pyproject.toml.bak
-uv lock
-git add pyproject.toml uv.lock
-git commit -m "chore: release v$VERSION"
-git tag "v$VERSION"
-git push origin "v$VERSION"
-echo "Released v$VERSION"
-"""
+description = "Bump version and release"
+usage = 'arg "[bump]" help="patch|minor|major or explicit x.y.z" default="patch"'
+run = "uv run scripts/release.py ${usage_bump?}"
