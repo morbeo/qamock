@@ -6,6 +6,7 @@ on:
       - "v*.*.*"
   workflow_dispatch:
 
+run-name: "Release ${{ github.ref_name }}"
 
 permissions:
   contents: write
