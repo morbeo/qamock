@@ -145,6 +145,27 @@ class TestLoadApiFile:
         assert routes[0]["endpoint"] == "/c"
         assert overrides == {}
 
+    def test_csv_statuscode_coerced_to_int(self):
+        content = "endpoint,method,statuscode,reply,exec\n/c,GET,201,hello,\n"
+        path = write_tmp(content, suffix=".csv")
+        routes, _ = load_api_file(path)
+        assert routes[0]["statuscode"] == 201
+        assert isinstance(routes[0]["statuscode"], int)
+
+    def test_csv_route_servable_over_http(self):
+        # Regression test: csv.DictReader yields strings, and send_response() requires
+        # an int status code — a route loaded straight from CSV used to raise TypeError.
+        content = "endpoint,method,statuscode,reply,exec\n/c,GET,201,hello,\n"
+        path = write_tmp(content, suffix=".csv")
+        routes, _ = load_api_file(path)
+        srv = make_server(routes)
+        try:
+            status, body = get(srv, "/c")
+            assert status == 201
+            assert body == "hello"
+        finally:
+            srv.shutdown()
+
     def test_exec_stripped_without_allow_exec(self, capsys):
         path = write_tmp(json.dumps([{"endpoint": "/r", "method": "GET", "exec": "ls"}]))
         routes, _ = load_api_file(path, allow_exec=False)

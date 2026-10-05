@@ -197,6 +197,18 @@ class MockHTTPServer(http.server.HTTPServer):
         self.api_file = api_file
         self.cli_args = cli_args or {}
 
+    def shutdown_request(self, request) -> None:
+        # Base TCPServer.shutdown_request() does a raw socket shutdown/close, which for an
+        # SSLSocket skips the TLS close_notify handshake. Strict SSL clients (curl, LWP, ...)
+        # then report the otherwise-successful response as SSL_ERROR_SYSCALL. Unwrap first so
+        # the connection closes cleanly at the TLS layer.
+        if isinstance(request, ssl.SSLSocket):
+            try:
+                request.unwrap()
+            except (OSError, ssl.SSLError):
+                pass
+        super().shutdown_request(request)
+
 
 def _strip_exec(routes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     for route in routes:
@@ -221,6 +233,9 @@ def load_api_file(file_path: str, allow_exec: bool = False) -> tuple:
     with open(file_path, "r") as file:
         if file_path.endswith(".csv"):
             raw = list(csv.DictReader(file))
+            for row in raw:
+                if row.get("statuscode"):
+                    row["statuscode"] = int(row["statuscode"])
         else:
             data = json.load(file)
             if isinstance(data, list):
