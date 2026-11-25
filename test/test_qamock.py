@@ -2,6 +2,10 @@
 """Unit tests for qamock.py"""
 
 import json
+import runpy
+import socket
+import ssl
+import subprocess
 import sys
 import tempfile
 import threading
@@ -644,3 +648,198 @@ class TestMain:
         endpoints = [r["endpoint"] for r in routes]
         assert "/" in endpoints
         assert "/extra" in endpoints
+
+
+# ── coverage gaps: execute_command ────────────────────────────────────────────
+
+
+class TestExecuteCommandBranches:
+    def test_stdout_and_stderr_combined(self):
+        out, rc = RequestHandler.execute_command("echo out; echo err >&2")
+        assert out.startswith("out")
+        assert "\nstderr: err" in out
+        assert rc == 0
+
+    def test_no_stderr_leaves_output_untouched(self):
+        out, _ = RequestHandler.execute_command("echo only-out")
+        assert "stderr" not in out
+
+    def test_runs_via_shell_with_timeout(self):
+        with patch("qamock.subprocess.run") as run:
+            run.return_value = MagicMock(stdout="", stderr="", returncode=0)
+            RequestHandler.execute_command("echo hi")
+        kwargs = run.call_args.kwargs
+        assert kwargs["shell"] is True
+        assert kwargs["timeout"] == 10
+
+    def test_real_timeout_returns_minus_one(self):
+        with patch("qamock.subprocess.run", side_effect=subprocess.TimeoutExpired("sleep", 10)):
+            out, rc = RequestHandler.execute_command("sleep 99")
+        assert (out, rc) == ("Command execution timed out after 10 seconds", -1)
+
+
+# ── coverage gaps: do_TRACE ───────────────────────────────────────────────────
+
+
+class TestTraceBranches:
+    def setup_method(self):
+        self.srv = make_server([set_route_defaults({})])
+        self.port = self.srv.server_address[1]
+
+    def teardown_method(self):
+        self.srv.shutdown()
+
+    def _trace(self, path="/", headers=None):
+        req = urllib.request.Request(f"http://127.0.0.1:{self.port}{path}", method="TRACE")
+        for k, v in (headers or {}).items():
+            req.add_header(k, v)
+        with urllib.request.urlopen(req) as r:
+            return r.status, r.headers.get("Content-Type"), r.read().decode()
+
+    def test_status_and_content_type(self):
+        status, ctype, _ = self._trace()
+        assert status == 200
+        assert ctype == "message/http"
+
+    def test_echoes_request_line_for_any_path(self):
+        _, _, body = self._trace("/some/unrouted/path")
+        assert body.startswith("TRACE /some/unrouted/path HTTP/1.1\r\n")
+
+    def test_body_ends_with_blank_line(self):
+        _, _, body = self._trace(headers={"X-One": "1"})
+        assert "X-One: 1\r\n" in body
+        assert body.endswith("\r\n\r\n")
+
+
+# ── coverage gaps: do_KILL ────────────────────────────────────────────────────
+
+
+class TestKillBranches:
+    def test_do_kill_sends_summary_flushes_and_exits_666(self):
+        handler = MagicMock()
+        handler._request_summary = {"/ping": {"GET": 2}}
+        with pytest.raises(SystemExit) as exc:
+            RequestHandler.do_KILL(handler)
+        assert exc.value.code == 666
+        status, body = handler._send_response.call_args[0]
+        assert status == 666
+        assert json.loads(body) == {"/ping": {"GET": 2}}
+        assert handler._send_response.call_args.kwargs["content_type"] == "application/json"
+        handler.wfile.flush.assert_called_once()
+
+    def test_kill_over_http_returns_666_with_summary(self):
+        srv = make_server([set_route_defaults({"endpoint": "/ping", "method": "GET", "reply": "pong"})])
+        try:
+            get(srv, "/ping")
+            status, body = get(srv, "/", method="KILL")
+            assert status == 666
+            assert json.loads(body)["/ping"]["GET"] == 1
+        finally:
+            srv.server_close()
+
+
+# ── coverage gaps: load_api_file errors ───────────────────────────────────────
+
+
+class TestLoadApiFileErrors:
+    def test_missing_file_raises(self, tmp_path):
+        with pytest.raises(FileNotFoundError):
+            load_api_file(str(tmp_path / "nope.json"))
+
+    def test_invalid_json_raises(self):
+        path = write_tmp("{not json")
+        with pytest.raises(json.JSONDecodeError):
+            load_api_file(path)
+
+    def test_empty_json_file_raises(self):
+        path = write_tmp("")
+        with pytest.raises(json.JSONDecodeError):
+            load_api_file(path)
+
+    def test_non_integer_port_in_config_raises(self):
+        path = write_tmp(json.dumps({"port": "abc", "routes": []}))
+        with pytest.raises(ValueError):
+            load_api_file(path)
+
+    def test_non_integer_csv_statuscode_raises(self):
+        path = write_tmp("endpoint,method,statuscode\n/x,GET,teapot\n", suffix=".csv")
+        with pytest.raises(ValueError):
+            load_api_file(path)
+
+    def test_config_without_routes_yields_empty_list(self):
+        path = write_tmp(json.dumps({"hostname": "h"}))
+        routes, overrides = load_api_file(path)
+        assert routes == []
+        assert overrides == {"host": "h"}
+
+    @pytest.mark.xfail(strict=True, reason="blank CSV statuscode is loaded as '' instead of falling back to the default")
+    def test_csv_blank_statuscode_keeps_default(self):
+        path = write_tmp("endpoint,method,statuscode\n/x,GET,\n", suffix=".csv")
+        routes, _ = load_api_file(path)
+        assert routes[0]["statuscode"] == ROUTE_DEFAULTS["statuscode"]
+
+    def test_non_dict_non_list_json_raises(self):
+        path = write_tmp("42")
+        with pytest.raises(AttributeError):
+            load_api_file(path)
+
+
+# ── coverage gaps: _strip_exec, SSL shutdown, __main__ ────────────────────────
+
+
+class TestStripExecUntouched:
+    def test_routes_without_exec_are_left_alone(self, capsys):
+        routes = [set_route_defaults({"endpoint": "/a", "method": "GET", "reply": "x"})]
+        before = dict(routes[0])
+        assert _strip_exec(routes) == [before]
+        assert "WARNING" not in capsys.readouterr().out
+
+
+class TestShutdownRequest:
+    def _server(self):
+        srv = MockHTTPServer(("127.0.0.1", 0), RequestHandler, [])
+        return srv
+
+    def test_ssl_socket_is_unwrapped_before_close(self):
+        srv = self._server()
+        try:
+            sock = MagicMock(spec=ssl.SSLSocket)
+            with patch("http.server.HTTPServer.shutdown_request") as base:
+                srv.shutdown_request(sock)
+            sock.unwrap.assert_called_once_with()
+            base.assert_called_once_with(sock)
+        finally:
+            srv.server_close()
+
+    @pytest.mark.parametrize("exc", [OSError("reset"), ssl.SSLError("bad")])
+    def test_unwrap_errors_are_swallowed_and_close_still_happens(self, exc):
+        srv = self._server()
+        try:
+            sock = MagicMock(spec=ssl.SSLSocket)
+            sock.unwrap.side_effect = exc
+            with patch("http.server.HTTPServer.shutdown_request") as base:
+                srv.shutdown_request(sock)
+            base.assert_called_once_with(sock)
+        finally:
+            srv.server_close()
+
+    def test_plain_socket_is_not_unwrapped(self):
+        srv = self._server()
+        try:
+            sock = MagicMock(spec=socket.socket)
+            sock.unwrap = MagicMock()
+            with patch("http.server.HTTPServer.shutdown_request") as base:
+                srv.shutdown_request(sock)
+            sock.unwrap.assert_not_called()
+            base.assert_called_once_with(sock)
+        finally:
+            srv.server_close()
+
+
+class TestMainGuard:
+    def test_running_as_script_without_args_prints_help_and_exits_0(self, capsys):
+        with patch.object(sys, "argv", ["qamock"]):
+            with pytest.raises(SystemExit) as exc:
+                runpy.run_path("qamock.py", run_name="__main__")
+        assert exc.value.code == 0
+        assert "usage" in capsys.readouterr().out.lower()

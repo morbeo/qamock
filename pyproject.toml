@@ -21,9 +21,10 @@ dev = [
 
 [tool.pytest.ini_options]
 filterwarnings = ["ignore::pytest.PytestUnhandledThreadExceptionWarning"]
-addopts = "--cov=qamock --cov-report=term-missing --cov-fail-under=95"
+addopts = "--cov=qamock --cov-report=term-missing --cov-fail-under=98"
 
 [tool.coverage.run]
+branch = true
 omit = ["test/*"]
 
 [tool.black]
